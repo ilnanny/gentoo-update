@@ -1,4 +1,5 @@
 
+
 Script per aggiornare Gentoo Linux
 ==================================
 Synopsis
@@ -12,8 +13,9 @@ Synopsis
 <p>Utilizzo:</p>
 ================
   <p>gentooupdate [opzioni]</p>
-<p></p>
+================
 <p>Opzioni:</p>
+================
   <p>-a true</p>
     <p>Interrompi se ci sono notizie non lette o se emerge è già in esecuzione.</p>
   <p>-d "--depclean"</p>
@@ -30,12 +32,14 @@ Synopsis
     <p>Gli argomenti passati ad emerge durante la fase di sync.</p>
   <p>-u "-uDN --with-bdeps=y world"</p>
     <p>Gli argomenti passati ad emerge durante la fase di update.</p>
-<p></p>
+================
 <p>Esempi:</p>
+================
  <p> gentooupdate -a false</p>
  <p> gentooupdate -n 20 -u "-uDN --with-bdeps=y --keep-going world"</p>
-<p></p>
+================
 <p>Versione:</p>
+================
   <p>Gentoo Update 1.1.1.1</p>
   <p>File Originale Nathan Shearer</p>
   <p>Editore Cristian Pozzessere</p>
