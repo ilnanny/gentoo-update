@@ -8,8 +8,9 @@ Synopsis
     <p>preservedrebuild</p>
      <p>depclean</p>
       <p>revdeprebuild</p>
-<p></p>
+================
 <p>Utilizzo:</p>
+================
   <p>gentooupdate [opzioni]</p>
 <p></p>
 <p>Opzioni:</p>
