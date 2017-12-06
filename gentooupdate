@@ -1,0 +1,313 @@
+#!/usr/bin/env bash
+
+NAME="Gentoo Update"
+CODENAME="gentooupdate"
+COPYRIGHT="Copyright (C) 2015 Nathan Shearer"
+EDITOR="Cristian Pozzessere == ilnanny == 2017"
+LICENSE="GNU General Public License 2.0"
+VERSION="1.1.1.0"
+
+# \brief Interrompe l'aggiornamento se è in esecuzione un'altra istanza di emerge
+function gentooupdate_abort_if_emerging
+{
+	if $AUTO_ABORT; then
+		if ps -C emerge >/dev/null 2>&1; then
+			echo "il suo aggiornamento è stato interrotto perché è in esecuzione un'altra istanza di emerge." >>"$TMP"/emerging.email
+			gentooupdate_email $EMAIL_ERROR $(hostname --fqdn)": update aborted on $NOW" "$TMP"/emerging.email
+			gentooupdate_exit 1 "Aggiornamento interrotto perché è in esecuzione un'altra istanza di emerge"
+		fi
+	fi
+}
+
+# \brief Aborts the update if there is any news
+function gentooupdate_abort_if_news
+{
+	if $AUTO_ABORT; then
+		NEWS=`eselect news count`
+		if [ $NEWS -ne 0 ]; then
+			echo "Questo aggiornamento è stato interrotto perché ci sono news non lette:" >>"$TMP"/news.email
+			echo >>"$TMP"/news.email
+			eselect news list >>"$TMP"/news.email
+			gentooupdate_email $EMAIL_ERROR $(hostname --fqdn)": update aborted on $NOW" "$TMP"/news.email
+			gentooupdate_exit 1 "Aggiornamento interrotto perché non ci sono news non lette"
+		fi
+	fi
+}
+
+# \brief Assicura che le dipendenze siano presenti
+# \param $@ Le dipendenze da verificare
+function gentooupdate_check_dependencies
+{
+	for TOOL in "$@"; do
+		if ! type "$TOOL" >/dev/null 2>/dev/null; then
+			echo "$CODENAME: \"$TOOL\" è necessario affinché questa applicazione funzioni correttamente." >&2
+			exit
+		fi
+	done
+}
+
+# \brief Pulisce il sistema rimuovendo i pacchetti che non sono associati a pacchetti esplicitamente uniti
+function gentooupdate_depclean
+{
+	echo "gentooupdate_depclean" "$@" >> "$LOG"
+	local NOW=`date --rfc-3339=seconds`
+	
+	rm -f "$TMP"/depclean.log
+	emerge $DEPCLEAN_ARGS >>"$TMP"/depclean.log 2>>"$TMP"/depclean.log
+	if [ $? -ne 0 ]; then
+		echo "The \"emerge --depclean\" operazione fallita. Il registro è incluso di seguito:" >>"$TMP"/depclean.email
+		echo >>"$TMP"/depclean.email
+		cat "$TMP"/depclean.log >>"$TMP"/depclean.email
+		gentooupdate_email $EMAIL_ERROR $(hostname --fqdn)": aggiornamento fallito $NOW" "$TMP"/depclean.email
+		gentooupdate_exit 4 "The \"emerge --depclean\" operation failed"
+	fi
+}
+
+# \brief Invia l'e-mail
+# \param $1 L'Indirizzo e-mail
+# \param $2  L'Oggetto
+# \param $3 Il file che contiene il messaggio
+function gentooupdate_email
+{
+	echo "gentooupdate_email" "$@" >> "$LOG"
+	if [ $# -eq 3 -a "$1" != "" ]; then
+		cat "$3" | mail -s "$2" "$1"
+	fi
+}
+
+# \brief Pulisce l'ambiente ed esce
+# \param $1 Il codice di uscita
+# \param $2 Il messaggio di uscita
+#
+# Se DEBUG=true quindi i file temporanei non vengono cancellati.
+function gentooupdate_exit
+{
+	#echo "gentooupdate_exit" "$@" >>"$LOG"
+	if $EXITING; then return; fi
+	EXITING=true
+	local EXIT="$1"
+	local MESSAGE="$2"
+	if [ "$EXIT" = "" ]; then
+		EXIT=0
+	fi
+	if [ "$MESSAGE" = "" ]; then
+		MESSAGE="Si è verificato un errore irreversibile"
+	fi
+	if ! $DEBUG; then
+		rm -rf "$TMP"
+	else
+		echo "La modalità di debug è abilitata. File temporanei in \"$TMP\" *non* sarà cancellato."
+	fi
+	case $EXIT in
+		0) exit;;
+		*) echo "$CODENAME: $MESSAGE" >&2; exit $EXIT;;
+	esac
+}
+
+# \brief Visualizza l'aiuto ed esce dal programma
+function gentooupdate_help
+{
+	#     01234567890123456789012345678901234567890123456789012345678901234567890123456789
+	echo "Synopsis"
+	echo "  Aggiorna automaticamente Gentoo Linux in più fasi:"
+	echo "    sync"
+	echo "    update"
+	echo "    preservedrebuild"
+	echo "    depclean"
+	echo "    revdeprebuild"
+	echo
+	echo "Utilizzo:"
+	echo "  $CODENAME [options]"
+	echo
+	echo "Options:"
+	echo "  -a true"
+	echo "    Interrompi se ci sono notizie non lette o se emerge è già in esecuzione."
+	echo "  -d \"--depclean\""
+	echo "    Gli argomenti passati ad emergere durante la fase depclean."
+	echo "  -e \"\""
+	echo "    Gli argomenti passati a revdep-rebuild durante la fase revdeprebuild."
+	echo "  -h"
+	echo "    Mostra questo messaggio di aiuto ed esci."
+	echo "  -n N"
+	echo "    Imposta la precisione su N (default 0)."
+	echo "  -r \"@preserved-rebuild\""
+	echo "    Gli argomenti passati ad emerge durante la fase di preservedbuild."
+	echo "  -s \"--sync\""
+	echo "    Gli argomenti passati ad emerge durante la fase di sync."
+	echo "  -u \"-uDN --with-bdeps=y world\""
+	echo "    Gli argomenti passati ad emerge durante la fase di update."
+	echo
+	echo "Examples:"
+	echo "  $CODENAME -a false"
+	echo "  $CODENAME -n 20 -u \"-uDN --with-bdeps=y --keep-going world\""
+	echo
+	echo "Version:"
+	echo "  $NAME $VERSION"
+	echo "  $COPYRIGHT"
+	echo "  $EDITOR"
+	echo "  Licensed under $LICENSE"
+	exit
+}
+
+# \brief Registra i messaggi su syslog con il logger
+# \param $1 Registra questo messaggio solo se $VERBOSE è maggiore o uguale a $1
+# \param $2 Il messaggio che verrà registrato
+function gentooupdate_log
+{
+	if [ $VERBOSE -ge $1 ]; then
+		logger "$CODENAME: $2"
+	fi
+}
+
+# \brief La funzione principale di questo script
+function gentooupdate_main
+{
+	echo "gentooupdate_email" "$@" >> "$LOG"
+	local NOW=`date --rfc-3339=seconds`
+	
+	gentooupdate_abort_if_emerging
+	gentooupdate_sync
+	gentooupdate_update
+	gentooupdate_preservedrebuild
+	gentooupdate_depclean
+	gentooupdate_revdeprebuild
+	
+	echo "L'aggiornamento è stato completato correttamente." > "$TMP"/success.email
+	echo >> "$TMP"/success.email
+	cat "$TMP"/update.log >> "$TMP"/success.email
+	
+	gentooupdate_email $EMAIL_LOG $(hostname --fqdn)": aggiornamento completato correttamente su $NOW" "$TMP"/success.email
+}
+
+# \brief Ricostruisce i pacchetti con le librerie conservate
+function gentooupdate_preservedrebuild
+{
+	echo "gentooupdate_preservedrebuild" "$@" >> "$LOG"
+	local NOW=`date --rfc-3339=seconds`
+	
+	gentooupdate_abort_if_news
+
+	rm -f "$TMP"preservedrebuild
+	emerge $REPRESERVE_ARGS >>"$TMP"/preservedrebuild.log 2>>"$TMP"/preservedrebuild.log
+	if [ $? -ne 0 ]; then
+		echo "The \"emerge @preserved-rebuild\" operation failed. Log is included below:" >>"$TMP"/preservedrebuild.email
+		echo >>"$TMP"/preservedrebuild.email
+		cat "$TMP"/preservedrebuild.log >>"$TMP"/preservedrebuild.email
+		gentooupdate_email $EMAIL_ERROR $(hostname --fqdn)": aggiornamento fallito su $NOW" "$TMP"/preservedrebuild.email
+		gentooupdate_exit 3 "The \"emerge @preserved-rebuild\" operation failed"
+	fi
+}
+
+# \brief Riemerge i binari rotti e le librerie condivise
+function gentooupdate_revdeprebuild
+{
+	echo "gentooupdate_revdeprebuild" "$@" >> "$LOG"
+	local NOW=`date --rfc-3339=seconds`
+	
+	rm -f "$TMP"/revdeprebuild.log
+	revdep-rebuild $REVDEP_ARGS >>"$TMP"/revdeprebuild.log 2>>"$TMP"/revdeprebuild.log
+	if [ $? -ne 0 ]; then
+		echo "Il \"revdep-rebuild\" è fallito. Il registro è incluso di seguito:" >>"$TMP"/revdeprebuild.email
+		echo >>"$TMP"/revdeprebuild.email
+		cat "$TMP"/revdeprebuild.log >>"$TMP"/revdeprebuild.email
+		gentooupdate_email $EMAIL_ERROR $(hostname --fqdn)": aggiornamento fallito su $NOW" "$TMP"/revdeprebuild.email
+		gentooupdate_exit 5 "Il \"revdep-rebuild\" operazione fallita"
+	fi
+}
+
+# \brief Sincronizza i repository di portage
+function gentooupdate_sync
+{
+	echo "gentooupdate_sync" "$@" >> "$LOG"
+	local NOW=`date --rfc-3339=seconds`
+	
+	gentooupdate_abort_if_news
+
+	rm -f "$TMP"/sync.log
+	emerge $SYNC_ARGS >>"$TMP"/sync.log 2>>"$TMP"/sync.log
+	if [ $? -ne 0 ]; then
+		echo "Il \"emerge --sync\" è fallito. Il registro è incluso di seguito:" >>"$TMP"/sync.email
+		echo >>"$TMP"/sync.email
+		cat "$TMP"/sync.log >>"$TMP"/sync.email
+		gentooupdate_email $EMAIL_ERROR $(hostname --fqdn)": aggiornamento fallito su $NOW" "$TMP"/sync.email
+		gentooupdate_exit 2 "Il \"emerge --sync\" operazione fallita"
+	fi
+}
+
+# \brief Aggiornamento pacchetti
+function gentooupdate_update
+{
+	echo "gentooupdate_update" "$@" >> "$LOG"
+	local NOW=`date --rfc-3339=seconds`
+	
+	gentooupdate_abort_if_news
+
+	rm -f "$TMP"/update.log
+	emerge $UPDATE_ARGS >>"$TMP"/update.log 2>>"$TMP"/update.log
+	if [ $? -ne 0 ]; then
+		echo "Il \"emerge -uDN --with-bdeps=y world\" è fallito. Il registro è incluso di seguito:" >>"$TMP"/update.email
+		echo >>"$TMP"/update.email
+		cat "$TMP"/update.log >>"$TMP"/update.email
+		gentooupdate_email $EMAIL_ERROR $(hostname --fqdn)": aggiornamento fallito su $NOW" "$TMP"/update.email
+		gentooupdate_exit 3 "Il \"emerge -uDN --with-bdeps=y world\" operazione fallita"
+	fi
+}
+
+#------------------------------------------------------------------------------
+# configurazione di default 
+#
+EMAIL_ERROR=""
+EMAIL_LOG=""
+AUTO_ABORT=true
+SYNC_ARGS="--sync"
+UPDATE_ARGS="-uDN --with-bdeps=y --complete-graph --backtrack=65536 --quiet --verbose-conflicts world"
+REPRESERVE_ARGS="@preserved-rebuild"
+DEPCLEAN_ARGS="--depclean"
+REVDEP_ARGS=""
+DEBUG=false
+NICE=0
+TMP="/tmp"
+
+#------------------------------------------------------------------------------
+# config files
+#
+if [ -r /etc/$CODENAME.conf ]; then
+	. /etc/$CODENAME.conf
+fi
+if [ -r ~/.$CODENAME.conf ]; then
+	. ~/.$CODENAME.conf
+fi
+
+#------------------------------------------------------------------------------
+# command line arguments
+#
+while getopts "a:d:hn:r:s:u:" OPTION; do
+	case "$OPTION" in
+		"a") AUTO_ABORT="$OPTARG";;
+		"d") DEPCLEAN_ARGS="$OPTARG";;
+		"e") REVDEP_ARGS="$OPTARG";;
+		"h") gentooupdate_help;;
+		"n") NICE="$OPTARG";;
+		"r") REPRESERVE_ARGS="$OPTARG";;
+		"s") SYNC_ARGS="$OPTARG";;
+		"u") UPDATE_ARGS="$OPTARG";;
+		*) gentooupdate_help;;
+	esac
+done
+shift $(( $OPTIND - 1 ))
+
+#------------------------------------------------------------------------------
+# prepare environment
+#
+EXITING=false
+trap gentooupdate_exit EXIT SIGHUP SIGINT SIGQUIT SIGABRT SIGKILL SIGTERM
+TMP="$TMP/$CODENAME.$$"
+mkdir -p "$TMP"
+LOG="$TMP/log"
+touch "$LOG"
+renice $NICE $$ >>"$LOG" 2>>"$LOG"
+
+#------------------------------------------------------------------------------
+# iniziare l'esecuzione
+#
+gentooupdate_main

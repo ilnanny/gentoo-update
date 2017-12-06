@@ -43,4 +43,4 @@ Synopsis
   <p>Gentoo Update 1.1.1.1</p>
   <p>File Originale Nathan Shearer</p>
   <p>Editore Cristian Pozzessere</p>
-  <p>Distribuito mediante  GNU General Public License 2.0</p>
+  <p>Distribuito mediante  GNU General Public License 3.0</p>
