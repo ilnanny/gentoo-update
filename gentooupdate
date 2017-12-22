@@ -13,13 +13,13 @@ function gentooupdate_abort_if_emerging
 	if $AUTO_ABORT; then
 		if ps -C emerge >/dev/null 2>&1; then
 			echo "il suo aggiornamento è stato interrotto perché è in esecuzione un'altra istanza di emerge." >>"$TMP"/emerging.email
-			gentooupdate_email $EMAIL_ERROR $(hostname --fqdn)": update aborted on $NOW" "$TMP"/emerging.email
+			gentooupdate_email $EMAIL_ERROR $(hostname --fqdn)": aggiornamento interrotto $NOW" "$TMP"/emerging.email
 			gentooupdate_exit 1 "Aggiornamento interrotto perché è in esecuzione un'altra istanza di emerge"
 		fi
 	fi
 }
 
-# \brief Aborts the update if there is any news
+# \brief Interrompe l'aggiornamento se ci sono novità
 function gentooupdate_abort_if_news
 {
 	if $AUTO_ABORT; then
@@ -28,7 +28,7 @@ function gentooupdate_abort_if_news
 			echo "Questo aggiornamento è stato interrotto perché ci sono news non lette:" >>"$TMP"/news.email
 			echo >>"$TMP"/news.email
 			eselect news list >>"$TMP"/news.email
-			gentooupdate_email $EMAIL_ERROR $(hostname --fqdn)": update aborted on $NOW" "$TMP"/news.email
+			gentooupdate_email $EMAIL_ERROR $(hostname --fqdn)": aggiornamento interrotto $NOW" "$TMP"/news.email
 			gentooupdate_exit 1 "Aggiornamento interrotto perché non ci sono news non lette"
 		fi
 	fi
@@ -58,8 +58,8 @@ function gentooupdate_depclean
 		echo "The \"emerge --depclean\" operazione fallita. Il registro è incluso di seguito:" >>"$TMP"/depclean.email
 		echo >>"$TMP"/depclean.email
 		cat "$TMP"/depclean.log >>"$TMP"/depclean.email
-		gentooupdate_email $EMAIL_ERROR $(hostname --fqdn)": aggiornamento fallito $NOW" "$TMP"/depclean.email
-		gentooupdate_exit 4 "The \"emerge --depclean\" operation failed"
+		gentooupdate_email $EMAIL_ERROR $(hostname --fqdn)": aggiornamento interrotto $NOW" "$TMP"/depclean.email
+		gentooupdate_exit 4 "The \"emerge --depclean\"fallito"
 	fi
 }
 
